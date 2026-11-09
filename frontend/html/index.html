@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VidSec</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #222; }
+    h1 { margin-bottom: 4px; }
+    .muted { color: #666; }
+    button { padding: 8px 14px; margin: 4px 8px 4px 0; cursor: pointer; }
+    pre { background: #f4f4f4; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>VidSec</h1>
+  <p class="muted">Видеохостинг на микросервисах. Этап 2: каркас сервисов.</p>
+
+  <p>
+    <button onclick="call('/api/hello')">api: hello</button>
+    <button onclick="call('/auth/hello')">auth-service: hello</button>
+    <button onclick="call('/api/health')">api: проверка БД, кеша, брокера, хранилища</button>
+    <button onclick="call('/auth/health')">auth-service: проверка БД пользователей</button>
+  </p>
+  <pre id="out">Нажмите кнопку, чтобы отправить запрос.</pre>
+
+  <script>
+    async function call(url) {
+      const out = document.getElementById('out');
+      out.textContent = 'GET ' + url + ' ...';
+      try {
+        const r = await fetch(url);
+        const body = await r.text();
+        let pretty = body;
+        try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch (e) {}
+        out.textContent = 'GET ' + url + '  ->  HTTP ' + r.status + '\n\n' + pretty;
+      } catch (e) {
+        out.textContent = 'Ошибка: ' + e;
+      }
+    }
+  </script>
+</body>
+</html>

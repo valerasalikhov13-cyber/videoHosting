@@ -1,0 +1,116 @@
+# VidSec — видеохостинг на микросервисах.
+# Запуск: docker compose up -d --build
+# Открыть: http://localhost:8080
+
+name: vidsec
+
+x-python-service: &python-service
+  restart: unless-stopped
+  env_file: .env
+
+services:
+  # ---------- Собственные сервисы ----------
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"            # единственная точка входа для пользователя
+    depends_on:
+      - api
+      - auth-service
+
+  auth-service:
+    <<: *python-service
+    build: ./auth-service
+    depends_on:
+      users-db:
+        condition: service_healthy
+
+  api:
+    <<: *python-service
+    build: ./api
+    depends_on:
+      video-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      storage:
+        condition: service_started
+
+  video-worker:
+    <<: *python-service
+    build: ./video-worker
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # ---------- Инфраструктура ----------
+  users-db:                  # БД пользователей, доступна только auth-service
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${USERS_DB_NAME}
+      POSTGRES_USER: ${USERS_DB_USER}
+      POSTGRES_PASSWORD: ${USERS_DB_PASSWORD}
+    volumes:
+      - users-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  video-db:                  # БД видео, каналов, оценок
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${VIDEO_DB_NAME}
+      POSTGRES_USER: ${VIDEO_DB_USER}
+      POSTGRES_PASSWORD: ${VIDEO_DB_PASSWORD}
+    volumes:
+      - video-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:                     # кеш: просмотры, рекомендации
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  rabbitmq:                  # брокер сообщений: задачи на обработку видео
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:15672:15672"   # веб-консоль RabbitMQ, только с этого ноутбука
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  storage:                   # S3-совместимое хранилище файлов (SeaweedFS)
+    image: chrislusf/seaweedfs:4.45
+    restart: unless-stopped
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-ip.bind=0.0.0.0"]
+    volumes:
+      - storage-data:/data
+
+volumes:
+  users-db-data:
+  video-db-data:
+  storage-data:
