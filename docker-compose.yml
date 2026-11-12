@@ -22,6 +22,8 @@ services:
   auth-service:
     <<: *python-service
     build: ./auth-service
+    volumes:
+      - jwt-keys:/keys        # закрытый ключ подписи JWT, есть только у auth-service
     depends_on:
       users-db:
         condition: service_healthy
@@ -38,6 +40,8 @@ services:
         condition: service_healthy
       storage:
         condition: service_started
+      auth-service:
+        condition: service_started
 
   video-worker:
     <<: *python-service
@@ -45,6 +49,10 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      video-db:
+        condition: service_healthy
+      storage:
+        condition: service_started
 
   # ---------- Инфраструктура ----------
   users-db:                  # БД пользователей, доступна только auth-service
@@ -56,6 +64,7 @@ services:
       POSTGRES_PASSWORD: ${USERS_DB_PASSWORD}
     volumes:
       - users-db-data:/var/lib/postgresql/data
+      - ./db/users-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -71,6 +80,7 @@ services:
       POSTGRES_PASSWORD: ${VIDEO_DB_PASSWORD}
     volumes:
       - video-db-data:/var/lib/postgresql/data
+      - ./db/video-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -106,11 +116,16 @@ services:
   storage:                   # S3-совместимое хранилище файлов (SeaweedFS)
     image: chrislusf/seaweedfs:4.45
     restart: unless-stopped
-    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-ip.bind=0.0.0.0"]
+    entrypoint: ["/bin/sh", "/start.sh"]
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
     volumes:
       - storage-data:/data
+      - ./storage/start.sh:/start.sh:ro
 
 volumes:
   users-db-data:
   video-db-data:
   storage-data:
+  jwt-keys:
