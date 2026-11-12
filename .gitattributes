@@ -1,0 +1,6 @@
+# Всегда LF в репозитории и в рабочей копии: shell-скрипты и конфиги
+# исполняются внутри Linux-контейнеров, CRLF из Windows их ломает.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.mp4 binary

@@ -26,8 +26,10 @@ app = FastAPI(title="VidSec api")
 
 @app.on_event("startup")
 def startup():
-    pool.open(wait=True, timeout=30)
-    storage.ensure_bucket()
+    # api стартует, даже если какое-то хранилище пока недоступно:
+    # пул PostgreSQL переподключается сам, бакет S3 создаётся в фоне с повторами.
+    pool.open(wait=False)
+    storage.ensure_bucket_in_background()
     cache.start_views_flusher()
 
 

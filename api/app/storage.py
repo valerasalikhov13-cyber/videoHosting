@@ -1,4 +1,8 @@
 """Работа с S3-хранилищем (SeaweedFS): видеофайлы и превью."""
+import logging
+import threading
+import time
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -20,6 +24,20 @@ def ensure_bucket():
         s3.head_bucket(Bucket=S3_BUCKET)
     except ClientError:
         s3.create_bucket(Bucket=S3_BUCKET)
+
+
+def ensure_bucket_in_background():
+    def loop():
+        while True:
+            try:
+                ensure_bucket()
+                logging.getLogger("api.storage").info("Бакет S3 '%s' готов", S3_BUCKET)
+                return
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger("api.storage").warning("S3 недоступно (%s), повтор через 5 с", exc)
+                time.sleep(5)
+
+    threading.Thread(target=loop, daemon=True).start()
 
 
 def upload(fileobj, key: str, content_type: str):
