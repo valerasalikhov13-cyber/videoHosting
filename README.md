@@ -41,6 +41,14 @@ docker compose ps
 - приложение: <http://localhost:8080>
 - консоль RabbitMQ: <http://localhost:15672> (логин и пароль из `.env`)
 
+## Тестирование
+
+Подробная инструкция: [TESTING.md](TESTING.md). Автотест на 32 проверки одной командой:
+
+```bash
+docker run --rm --add-host=host.docker.internal:host-gateway -v "${PWD}/tests:/tests" python:3.12-slim python /tests/smoke_test.py
+```
+
 ## Функции
 
 1. Регистрация и вход (auth-service, пароли в виде bcrypt-хешей, токен JWT RS256).
