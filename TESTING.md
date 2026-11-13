@@ -181,7 +181,20 @@ curl -I http://localhost:8080/
 
 В Windows PowerShell 5 вместо `curl` пишите `curl.exe`.
 
-## 9. Сброс к чистому состоянию
+## 9. Сегментация сети и firewall (этап 4)
+
+```bash
+docker compose exec firewall fw show                # все правила и счётчики пакетов
+bash firewall/test.sh                               # 25 проверок соединений (в Windows — в Git Bash)
+docker compose exec firewall fw disable api-redis   # запретить легитимное правило -> ошибки
+docker compose exec firewall fw enable api-redis    # вернуть
+docker network ls                                   # сегменты vidsec_*
+docker network inspect vidsec_cache                 # кто подключён к сегменту
+```
+
+Подробно: [firewall/README.md](firewall/README.md).
+
+## 10. Сброс к чистому состоянию
 
 ```bash
 docker compose down -v            # удалить контейнеры и ВСЕ данные (базы, кеш, файлы, ключ JWT)

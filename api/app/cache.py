@@ -10,7 +10,7 @@ from .config import REDIS_PASSWORD, REPUTATION_TTL, VIEWS_FLUSH_INTERVAL
 from .db import pool
 
 log = logging.getLogger("api.cache")
-r = redis.Redis(host="redis", password=REDIS_PASSWORD, socket_timeout=3, decode_responses=True)
+r = redis.Redis(host="redis", password=REDIS_PASSWORD, socket_timeout=3, socket_connect_timeout=3, decode_responses=True)
 
 
 # ---------- Просмотры (write-behind: пишем в Redis, раз в 30 с переносим в БД) ----------

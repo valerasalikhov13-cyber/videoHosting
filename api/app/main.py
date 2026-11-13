@@ -327,3 +327,27 @@ def get_channel(channel_id: int, user: dict | None = Depends(optional_user)):
 def db_unavailable(_request, exc):
     log.error("БД недоступна: %s", exc)
     return JSONResponse(status_code=503, content={"detail": "База данных недоступна"})
+
+
+# ---------- Понятные ошибки, когда хранилище недоступно (например, закрыто firewall) ----------
+import botocore.exceptions  # noqa: E402
+import pika.exceptions  # noqa: E402
+import redis.exceptions  # noqa: E402
+
+
+@app.exception_handler(redis.exceptions.RedisError)
+def cache_unavailable(_request, exc):
+    log.error("Redis недоступен: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": f"Кеш Redis недоступен: {exc}"})
+
+
+@app.exception_handler(pika.exceptions.AMQPError)
+def broker_unavailable(_request, exc):
+    log.error("RabbitMQ недоступен: %r", exc)
+    return JSONResponse(status_code=503, content={"detail": f"Брокер RabbitMQ недоступен: {exc!r}"})
+
+
+@app.exception_handler(botocore.exceptions.BotoCoreError)
+def storage_unavailable(_request, exc):
+    log.error("S3 недоступно: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": f"Хранилище S3 недоступно: {exc}"})
