@@ -21,8 +21,10 @@ from botocore.config import Config
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 QUEUE = "video.processing"
 BUCKET = os.environ.get("S3_BUCKET", "videos")
+# Два узла PostgreSQL: подключаемся к тому, который сейчас master
 DB_DSN = (
-    f"host=video-db dbname={os.environ['VIDEO_DB_NAME']} "
+    "host=video-db,video-db-standby target_session_attrs=read-write "
+    f"dbname={os.environ['VIDEO_DB_NAME']} "
     f"user={os.environ['VIDEO_DB_USER']} password={os.environ['VIDEO_DB_PASSWORD']} connect_timeout=3"
 )
 s3 = boto3.client(
@@ -33,11 +35,17 @@ s3 = boto3.client(
     region_name="us-east-1",
     config=Config(s3={"addressing_style": "path"}),
 )
-PARAMS = pika.ConnectionParameters(
-    host="rabbitmq",
-    credentials=pika.PlainCredentials(os.environ["RABBITMQ_USER"], os.environ["RABBITMQ_PASSWORD"]),
-    heartbeat=60,
-)
+# Кластер RabbitMQ: при падении узла воркер переподключается к следующему
+PARAMS = [
+    pika.ConnectionParameters(
+        host=node,
+        credentials=pika.PlainCredentials(os.environ["RABBITMQ_USER"], os.environ["RABBITMQ_PASSWORD"]),
+        heartbeat=10,
+        connection_attempts=1,
+        socket_timeout=3,
+    )
+    for node in ("rabbitmq", "rabbitmq-2", "rabbitmq-3")
+]
 
 
 def log(msg: str):
@@ -90,19 +98,29 @@ def handle(channel, method, _properties, body):
     channel.basic_ack(delivery_tag=method.delivery_tag)
 
 
+def connect():
+    """Первый живой узел кластера; упавший узел может даже не резолвиться по DNS."""
+    for params in PARAMS:
+        try:
+            return pika.BlockingConnection(params)
+        except (pika.exceptions.AMQPError, OSError) as exc:
+            log(f"узел {params.host} недоступен ({exc!r})")
+    raise pika.exceptions.AMQPConnectionError("все узлы RabbitMQ недоступны")
+
+
 def main():
     while True:
         try:
-            connection = pika.BlockingConnection(PARAMS)
+            connection = connect()
             channel = connection.channel()
-            channel.queue_declare(queue=QUEUE, durable=True)
+            channel.queue_declare(queue=QUEUE, durable=True, arguments={"x-queue-type": "quorum"})
             channel.basic_qos(prefetch_count=1)   # по одной задаче за раз
             channel.basic_consume(queue=QUEUE, on_message_callback=handle)
-            log(f"Hello, World! Подключён к RabbitMQ, слушаю очередь {QUEUE}")
+            log(f"Hello, World! Подключён к RabbitMQ (узел {connection._impl.params.host}), слушаю очередь {QUEUE}")
             channel.start_consuming()
-        except pika.exceptions.AMQPError as exc:
-            log(f"нет связи с RabbitMQ ({exc!r}), повтор через 5 с")
-            time.sleep(5)
+        except (pika.exceptions.AMQPError, OSError) as exc:
+            log(f"нет связи с RabbitMQ ({exc!r}), переподключаюсь к другому узлу через 2 с")
+            time.sleep(2)
 
 
 if __name__ == "__main__":

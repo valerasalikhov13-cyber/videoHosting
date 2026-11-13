@@ -13,14 +13,19 @@
 | `api` | видео, каналы, комментарии, оценки, рекомендации | Python, FastAPI |
 | `video-worker` | фоновая обработка видео из очереди (превью) | Python, pika, ffmpeg (imageio-ffmpeg) |
 | `users-db` | БД пользователей, доступна только `auth-service` | PostgreSQL 16 |
-| `video-db` | БД видео, каналов, оценок | PostgreSQL 16 |
+| `video-db` | БД видео, каналов, оценок (primary) | PostgreSQL 16 |
+| `video-db-standby` | копия video-db по потоковой репликации, становится master при отказе | PostgreSQL 16 |
+| `failover` | сторож: продвигает standby в master, защищает от split-brain | Python, psycopg |
+| `backup` | резервные копии обеих БД раз в час, хранит 24 | pg_dump |
 | `redis` | кеш: просмотры, рекомендации, репутация | Redis 7 |
-| `rabbitmq` | брокер сообщений: задачи на обработку видео | RabbitMQ 3.13 |
+| `rabbitmq`, `rabbitmq-2`, `rabbitmq-3` | кластер брокера из 3 узлов, quorum-очередь задач на обработку видео | RabbitMQ 3.13 |
 | `storage` | S3-совместимое хранилище видеофайлов и превью | SeaweedFS |
 | `firewall` | белый список соединений между сервисами (iptables, цепочка DOCKER-USER) | netshoot, iptables |
 
 Сервисы разнесены по 8 сегментам сети, между сегментами нет маршрута, внутри сегментов
 разрешены только нужные соединения. Подробно: [firewall/README.md](firewall/README.md).
+
+Отказоустойчивость, резервные копии, MTBF/MTTR/SLO: [RELIABILITY.md](RELIABILITY.md).
 
 ## Сборка и запуск (деплой)
 

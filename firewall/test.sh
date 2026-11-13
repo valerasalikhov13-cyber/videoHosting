@@ -8,8 +8,8 @@ pass=0; fail=0
 # Попытка соединения изнутри контейнера. Печатает: open | timeout | unreachable | refused
 probe() {
   local from=$1 ip=$2 port=$3
-  if [ "$from" = frontend ]; then
-    docker compose exec -T frontend sh -c "nc -z -w 2 $ip $port >/dev/null 2>&1 && echo open || echo timeout"
+  if [ "$from" = frontend ] || [ "$from" = backup ]; then
+    docker compose exec -T "$from" sh -c "nc -z -w 2 $ip $port >/dev/null 2>&1 && echo open || echo timeout"
   else
     docker compose exec -T "$from" python -c "
 import errno, socket, sys
@@ -52,6 +52,12 @@ check allow api          10.77.6.40 5672 "api -> rabbitmq AMQP"
 check allow video-worker 10.77.6.40 5672 "video-worker -> rabbitmq AMQP"
 check allow api          10.77.7.40 8333 "api -> S3"
 check allow video-worker 10.77.7.40 8333 "video-worker -> S3"
+check allow api          10.77.4.41 5432 "api -> standby video-db"
+check allow failover     10.77.4.41 5432 "сторож failover -> standby"
+check allow api          10.77.6.41 5672 "api -> rabbitmq-2"
+check allow video-worker 10.77.6.42 5672 "video-worker -> rabbitmq-3"
+check allow backup       10.77.3.40 5432 "backup -> users-db"
+check allow backup       10.77.4.40 5432 "backup -> video-db"
 
 echo
 echo "== Запрещено firewall (один сегмент, но правила нет)"
@@ -63,6 +69,8 @@ check deny  video-worker 10.77.6.30 8000 "video-worker -> api (через broker
 check deny  api          10.77.7.40 9333 "api -> SeaweedFS master"
 check deny  video-worker 10.77.7.40 8888 "video-worker -> SeaweedFS filer"
 check deny  frontend     1.1.1.1    443  "frontend -> интернет"
+check deny  backup       10.77.4.30 8000 "backup -> api"
+check deny  failover     10.77.4.30 8000 "сторож failover -> api"
 
 echo
 echo "== Запрещено сегментацией (сервисы в разных сетях)"
@@ -72,6 +80,8 @@ check deny  auth-service 10.77.5.40 6379 "auth-service -> redis"
 check deny  auth-service 10.77.4.40 5432 "auth-service -> video-db"
 check deny  frontend     10.77.4.40 5432 "frontend -> video-db"
 check deny  frontend     10.77.5.40 6379 "frontend -> redis"
+check deny  failover     10.77.5.40 6379 "сторож failover -> redis"
+check deny  backup       10.77.5.40 6379 "backup -> redis"
 
 echo
 echo "Итого: пройдено $pass, ошибок $fail"

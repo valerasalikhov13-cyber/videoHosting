@@ -8,6 +8,19 @@ x-python-service: &python-service
   restart: unless-stopped
   env_file: .env
 
+x-rabbitmq-node: &rabbitmq-node
+  image: rabbitmq:3.13-management-alpine
+  restart: unless-stopped
+  environment:
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}   # общий секрет узлов кластера
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+
 services:
   # ---------- Собственные сервисы ----------
   frontend:
@@ -89,9 +102,11 @@ services:
       timeout: 3s
       retries: 10
 
-  video-db:                  # БД видео, каналов, оценок
+  video-db:                  # БД видео, каналов, оценок — PRIMARY (master)
     image: postgres:16-alpine
     restart: unless-stopped
+    command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=5", "-c", "wal_keep_size=256MB",
+              "-c", "hot_standby=on", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]
     environment:
       POSTGRES_DB: ${VIDEO_DB_NAME}
       POSTGRES_USER: ${VIDEO_DB_USER}
@@ -99,6 +114,7 @@ services:
     volumes:
       - video-db-data:/var/lib/postgresql/data
       - ./db/video-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./db/replication/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     networks:
       video-data: { ipv4_address: 10.77.4.40 }
     healthcheck:
@@ -106,6 +122,56 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  video-db-standby:          # БД видео — STANDBY: копия primary по потоковой репликации
+    image: postgres:16-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/standby-entrypoint.sh"]
+    environment:
+      PRIMARY_HOST: video-db
+      REPL_USER: ${VIDEO_DB_USER}
+      REPL_PASSWORD: ${VIDEO_DB_PASSWORD}
+    volumes:
+      - video-db-standby-data:/var/lib/postgresql/data
+      - ./db/replication/standby-entrypoint.sh:/standby-entrypoint.sh:ro
+      - ./db/replication/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    networks:
+      video-data: { ipv4_address: 10.77.4.41 }
+    depends_on:
+      video-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${REPL_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  failover:                  # сторож: продвигает standby в master, если primary упал
+    build: ./failover
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      video-data: { ipv4_address: 10.77.4.60 }
+    depends_on:
+      video-db-standby:
+        condition: service_started
+
+  backup:                    # резервные копии обеих БД раз в час, хранятся 24 копии
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    command: ["sh", "/scripts/loop.sh"]
+    volumes:
+      - ./backup:/scripts:ro
+      - ./backups:/backups    # копии видны в папке backups/ проекта
+    networks:
+      users-data: { ipv4_address: 10.77.3.70 }
+      video-data: { ipv4_address: 10.77.4.70 }
+    depends_on:
+      video-db:
+        condition: service_healthy
+      users-db:
+        condition: service_healthy
 
   redis:                     # кеш: просмотры, рекомендации
     image: redis:7-alpine
@@ -121,22 +187,35 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
 
-  rabbitmq:                  # брокер сообщений: задачи на обработку видео
-    image: rabbitmq:3.13-management-alpine
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+  rabbitmq:                  # брокер сообщений, узел 1 из 3 (с веб-консолью)
+    <<: *rabbitmq-node
+    hostname: rabbitmq
+    volumes:
+      - rabbitmq-1-data:/var/lib/rabbitmq
+      - ./rabbitmq/cluster.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
     ports:
       - "127.0.0.1:15672:15672"   # веб-консоль RabbitMQ, только с этого ноутбука
     networks:
       broker: { ipv4_address: 10.77.6.40 }
       admin:  { ipv4_address: 10.77.8.40 }   # только для веб-консоли
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+
+  rabbitmq-2:                # брокер, узел 2 из 3
+    <<: *rabbitmq-node
+    hostname: rabbitmq-2
+    volumes:
+      - rabbitmq-2-data:/var/lib/rabbitmq
+      - ./rabbitmq/cluster.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+    networks:
+      broker: { ipv4_address: 10.77.6.41 }
+
+  rabbitmq-3:                # брокер, узел 3 из 3
+    <<: *rabbitmq-node
+    hostname: rabbitmq-3
+    volumes:
+      - rabbitmq-3-data:/var/lib/rabbitmq
+      - ./rabbitmq/cluster.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+    networks:
+      broker: { ipv4_address: 10.77.6.42 }
 
   storage:                   # S3-совместимое хранилище файлов (SeaweedFS)
     image: chrislusf/seaweedfs:4.45
@@ -199,3 +278,7 @@ volumes:
   video-db-data:
   storage-data:
   jwt-keys:
+  video-db-standby-data:
+  rabbitmq-1-data:
+  rabbitmq-2-data:
+  rabbitmq-3-data:

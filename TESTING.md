@@ -185,7 +185,7 @@ curl -I http://localhost:8080/
 
 ```bash
 docker compose exec firewall fw show                # все правила и счётчики пакетов
-bash firewall/test.sh                               # 25 проверок соединений (в Windows — в Git Bash)
+bash firewall/test.sh                               # 35 проверок соединений (в Windows — в Git Bash)
 docker compose exec firewall fw disable api-redis   # запретить легитимное правило -> ошибки
 docker compose exec firewall fw enable api-redis    # вернуть
 docker network ls                                   # сегменты vidsec_*
@@ -194,7 +194,18 @@ docker network inspect vidsec_cache                 # кто подключён 
 
 Подробно: [firewall/README.md](firewall/README.md).
 
-## 10. Сброс к чистому состоянию
+## 10. Отказоустойчивость и резервные копии (этап 5)
+
+```bash
+docker compose exec failover python watcher.py status     # роли узлов PostgreSQL и отставание репликации
+docker compose exec rabbitmq-2 rabbitmqctl cluster_status # узлы кластера RabbitMQ
+docker compose exec backup sh /scripts/backup.sh          # резервная копия сейчас
+docker compose exec backup sh /scripts/restore.sh latest  # восстановление
+```
+
+Сценарии отказов и расчёт MTBF, MTTR, SLO: [RELIABILITY.md](RELIABILITY.md).
+
+## 11. Сброс к чистому состоянию
 
 ```bash
 docker compose down -v            # удалить контейнеры и ВСЕ данные (базы, кеш, файлы, ключ JWT)

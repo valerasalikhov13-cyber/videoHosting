@@ -17,10 +17,10 @@
 |---|---|---|---|---|
 | `edge` | 10.77.1.0/24 | frontend (.10) | да, порт 8080 | вход пользователя |
 | `app` | 10.77.2.0/24 | frontend (.10), auth-service (.20), api (.30) | нет | nginx → сервисы, api → ключ JWT |
-| `users-data` | 10.77.3.0/24 | auth-service (.20), users-db (.40) | нет | пароли видит только auth-service |
-| `video-data` | 10.77.4.0/24 | api (.30), video-worker (.50), video-db (.40) | нет | метаданные видео |
+| `users-data` | 10.77.3.0/24 | auth-service (.20), users-db (.40), backup (.70) | нет | пароли видит только auth-service |
+| `video-data` | 10.77.4.0/24 | api (.30), video-worker (.50), video-db (.40), video-db-standby (.41), failover (.60), backup (.70) | нет | метаданные видео, репликация |
 | `cache` | 10.77.5.0/24 | api (.30), redis (.40) | нет | кеш |
-| `broker` | 10.77.6.0/24 | api (.30), video-worker (.50), rabbitmq (.40) | нет | очередь задач |
+| `broker` | 10.77.6.0/24 | api (.30), video-worker (.50), rabbitmq (.40), rabbitmq-2 (.41), rabbitmq-3 (.42) | нет | очередь задач, связь узлов кластера |
 | `storage` | 10.77.7.0/24 | api (.30), video-worker (.50), storage (.40) | нет | файлы S3 |
 | `admin` | 10.77.8.0/24 | rabbitmq (.40) | да, 127.0.0.1:15672 | веб-консоль RabbitMQ |
 
@@ -30,7 +30,7 @@
 
 1. Отключённые вручную правила → DROP (обрывает и уже открытые соединения).
 2. Ответные пакеты установленных соединений (`ESTABLISHED,RELATED`) → ACCEPT.
-3. 13 разрешающих правил белого списка → ACCEPT.
+3. Разрешающие правила белого списка → ACCEPT.
 4. Всё остальное → LOG (`VIDSEC-DROP`) и DROP.
 
 ## Команды
@@ -40,7 +40,7 @@ docker compose exec firewall fw show               # все правила, со
 docker compose exec firewall fw disable api-redis  # запретить легитимное правило
 docker compose exec firewall fw enable api-redis   # вернуть его
 docker compose exec firewall fw reset              # включить все правила
-bash firewall/test.sh                              # 25 проверок соединений (в Windows — в Git Bash)
+bash firewall/test.sh                              # 35 проверок соединений (в Windows — в Git Bash)
 ```
 
 ## Сценарий демонстрации

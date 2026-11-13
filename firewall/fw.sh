@@ -39,8 +39,8 @@ build_chain() {
   while read -r name src dst port desc; do
     is_disabled "$name" || continue
     local s=(); [ "$src" != any ] && s=(-s "$src")
-    $IPT -A $CHAIN "${s[@]}" -d "$dst" -p tcp --dport "$port" -m comment --comment "DISABLED $name" -j DROP
-    $IPT -A $CHAIN -s "$dst" "${s[@]/-s/-d}" -p tcp --sport "$port" -m comment --comment "DISABLED $name (ответ)" -j DROP
+    $IPT -A $CHAIN "${s[@]}" -d "$dst" -p tcp -m multiport --dports "$port" -m comment --comment "DISABLED $name" -j DROP
+    $IPT -A $CHAIN -s "$dst" "${s[@]/-s/-d}" -p tcp -m multiport --sports "$port" -m comment --comment "DISABLED $name (ответ)" -j DROP
   done < <(rules)
   # 2. Ответы на разрешённые соединения
   $IPT -A $CHAIN -m conntrack --ctstate ESTABLISHED,RELATED -m comment --comment "ответные пакеты" -j ACCEPT
@@ -48,7 +48,7 @@ build_chain() {
   while read -r name src dst port desc; do
     is_disabled "$name" && continue
     local s=(); [ "$src" != any ] && s=(-s "$src")
-    $IPT -A $CHAIN "${s[@]}" -d "$dst" -p tcp --dport "$port" -m conntrack --ctstate NEW \
+    $IPT -A $CHAIN "${s[@]}" -d "$dst" -p tcp -m multiport --dports "$port" -m conntrack --ctstate NEW \
       -m comment --comment "ALLOW $name" -j ACCEPT
   done < <(rules)
   # 4. Всё остальное — в журнал и DROP

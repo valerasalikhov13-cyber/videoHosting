@@ -1,8 +1,10 @@
 """Настройки api из переменных окружения."""
 import os
 
+# Два узла PostgreSQL: драйвер подключается к тому, который сейчас принимает запись (master)
 VIDEO_DB_DSN = (
-    f"host=video-db dbname={os.environ['VIDEO_DB_NAME']} "
+    "host=video-db,video-db-standby target_session_attrs=read-write "
+    f"dbname={os.environ['VIDEO_DB_NAME']} "
     f"user={os.environ['VIDEO_DB_USER']} password={os.environ['VIDEO_DB_PASSWORD']} "
     "connect_timeout=3"
 )
@@ -15,7 +17,8 @@ S3_SECRET_KEY = os.environ["S3_SECRET_KEY"]
 S3_BUCKET = os.environ.get("S3_BUCKET", "videos")
 AUTH_URL = os.environ.get("AUTH_URL", "http://auth-service:8000")
 
-PROCESSING_QUEUE = "video.processing"
+PROCESSING_QUEUE = "video.processing"      # quorum-очередь, реплицируется на 3 узла RabbitMQ
+RABBITMQ_NODES = ["rabbitmq", "rabbitmq-2", "rabbitmq-3"]
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 RECOMMENDATION_SMOOTHING = 10      # score = репутация / (просмотры + 10)
 RECOMMENDATIONS_TTL = 60           # сколько секунд список рекомендаций живёт в кеше
